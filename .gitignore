@@ -1,0 +1,8 @@
+.env
+.env.local
+credentials/
+secrets/
+*.lock
+node_modules/
+.npm-cache
+*.resolve.*
